@@ -51,14 +51,6 @@ public:
 	EGait Get_Gait() const;
 	virtual EGait Get_Gait_Implementation() const { return EGait::Walk; }
 
-	/**
-	 * Get the target gait for animation blending.
-	 * @return The target gait (Walk, Run, Sprint).
-	 */
-	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Getters")
-	EGait Get_TargetGait() const;
-	virtual EGait Get_TargetGait_Implementation() const { return EGait::Walk; }
-
 	/** Category= Setters */
 
 	/**
