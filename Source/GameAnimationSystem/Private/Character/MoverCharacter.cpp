@@ -1,6 +1,6 @@
-// Copyright Soatori Games, Inc. All Rights Reserved.
+﻿// Copyright Soatori Games, Inc. All Rights Reserved.
 
-#include "MoverCharacter.h"
+#include "Character/MoverCharacter.h"
 
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"

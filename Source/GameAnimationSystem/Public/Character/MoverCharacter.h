@@ -1,4 +1,4 @@
-// Copyright Soatori Games, Inc. All Rights Reserved.
+﻿// Copyright Soatori Games, Inc. All Rights Reserved.
 
 #pragma once
 

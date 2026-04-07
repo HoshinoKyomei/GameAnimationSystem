@@ -9,9 +9,15 @@ public class GameAnimationSystem : ModuleRules
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
         PublicIncludePaths.AddRange(
-            new string[]
-            {
-                "Public"
+            new string[] {
+                // ... add public include paths required here ...
+            }
+        );
+				
+		
+        PrivateIncludePaths.AddRange(
+            new string[] {
+                // ... add other private include paths required here ...
             }
         );
 
@@ -21,14 +27,16 @@ public class GameAnimationSystem : ModuleRules
                 "Core",
                 "CoreUObject",
                 "Engine",
-                "Mover"
-            }
-        );
+                "Mover",
+                "MotionWarping",
+                "AnimationDataController",
+                "PoseSearch"
+            });
 
         PrivateDependencyModuleNames.AddRange(
             new string[]
             {
-            }
-        );
+                "AnimationCore"
+            });
     }
 }
