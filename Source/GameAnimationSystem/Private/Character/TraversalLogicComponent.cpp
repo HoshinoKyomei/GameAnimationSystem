@@ -2,6 +2,7 @@
 
 #include "Character/TraversalLogicComponent.h"
 #include "Character/GASPCharacterPawnInterface.h"
+#include "Character/GASPCharacterABPInterface.h"
 #include "Character/TraversableLedgesInterface.h"
 #include "Components/CapsuleComponent.h"
 #include "Kismet/KismetSystemLibrary.h"
@@ -274,6 +275,26 @@ bool UTraversalLogicComponent::TryTraversalAction(
 	}
 
 	// ============================================================
+	// Step 4.1: Send front ledge location to Anim BP via interface
+	// This transform is used for a custom channel within Motion Matching search
+	// ============================================================
+	if (CharacterProperties.Mesh)
+	{
+		if (UAnimInstance* AnimInstance = CharacterProperties.Mesh->GetAnimInstance())
+		{
+			if (AnimInstance->GetClass()->ImplementsInterface(UGASPCharacterABPInterface::StaticClass()))
+			{
+				// Create transform from front ledge location and normal
+				const FTransform InteractionTransform(
+					FRotationMatrix::MakeFromZ(-TraversalCheckResult.FrontLedgeNormal).Rotator(),
+					TraversalCheckResult.FrontLedgeLocation
+				);
+				IGASPCharacterABPInterface::Execute_Set_InteractionTransform(AnimInstance, InteractionTransform);
+			}
+		}
+	}
+
+	// ============================================================
 	// Step 5.1: Check ActionType validity
 	// ============================================================
 	if (TraversalCheckResult.ActionType == ETraversalActionType::None)
@@ -284,9 +305,41 @@ bool UTraversalLogicComponent::TryTraversalAction(
 
 	// ============================================================
 	// Step 5.2: Montage selection via Chooser
+	// Note: Blueprint uses K2Node_EvaluateChooser2 which outputs FTraversalChooserOutputs
+	// (ActionType + MontageStartTime). In C++, we use EvaluateChooser for Montage only.
+	// ActionType is determined by heuristics above, StartTime uses default (0.0f).
+	// TODO: Consider using ChooserTable with struct output if supported.
 	// ============================================================
 	if (MontageChooserTable)
 	{
+		// Build chooser inputs for context (used by ChooserTable evaluation)
+		FTraversalChooserInputs ChooserInputs;
+		ChooserInputs.ActionType = TraversalCheckResult.ActionType;
+		ChooserInputs.HasFrontLedge = TraversalCheckResult.HasFrontLedge;
+		ChooserInputs.HasBackLedge = TraversalCheckResult.HasBackLedge;
+		ChooserInputs.HasBackFloor = TraversalCheckResult.HasBackFloor;
+		ChooserInputs.ObstacleHeight = TraversalCheckResult.ObstacleHeight;
+		ChooserInputs.ObstacleDepth = TraversalCheckResult.ObstacleDepth;
+		ChooserInputs.BackLedgeHeight = TraversalCheckResult.BackLedgeHeight;
+		ChooserInputs.MovementMode = CharacterProperties.MovementMode;
+		ChooserInputs.Gait = CharacterProperties.Gait;
+		ChooserInputs.Speed = CharacterProperties.Speed;
+
+		// Get PoseHistory from Anim BP interface
+		if (CharacterProperties.Mesh)
+		{
+			if (UAnimInstance* AnimInstance = CharacterProperties.Mesh->GetAnimInstance())
+			{
+				if (AnimInstance->GetClass()->ImplementsInterface(UGASPCharacterABPInterface::StaticClass()))
+				{
+					ChooserInputs.PoseHistory = IGASPCharacterABPInterface::Execute_Get_PoseHistory(AnimInstance);
+				}
+			}
+		}
+
+		// Calculate distance to ledge
+		ChooserInputs.DistanceToLedge = FVector::Dist2D(OwnerActor->GetActorLocation(), TraversalCheckResult.FrontLedgeLocation);
+
 		UObject* SelectedObject = UChooserFunctionLibrary::EvaluateChooser(
 			this,
 			MontageChooserTable,
