@@ -30,7 +30,9 @@ public class GameAnimationSystem : ModuleRules
                 "Mover",
                 "MotionWarping",
                 "AnimationDataController",
-                "PoseSearch"
+                "PoseSearch",
+                "AnimationWarpingRuntime",
+                "Chooser"
             });
 
         PrivateDependencyModuleNames.AddRange(
