@@ -8,6 +8,7 @@
 #include "DefaultMovementSet/CharacterMoverComponent.h"
 #include "GameFramework/GameplayCameraComponent.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Kismet/KismetMathLibrary.h"
 
 ABaseCharacter_Mover::ABaseCharacter_Mover(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -148,7 +149,76 @@ void ABaseCharacter_Mover::Update_FloorValues_Implementation()
 
 FTraversalCheckInputs ABaseCharacter_Mover::GetTraversalCheckInputs_Implementation() const
 {
-	return FTraversalCheckInputs();
+	FTraversalCheckInputs Result;
+
+	// Get current movement mode
+	const EGASPMovementMode MovementMode = Get_CurrentMovementMode();
+
+	// Get CharacterMover component
+	UCharacterMoverComponent* MoverComp = GetCharacterMover();
+	if (!MoverComp)
+	{
+		return Result;
+	}
+
+	switch (MovementMode)
+	{
+		case EGASPMovementMode::OnGround:
+		case EGASPMovementMode::Sliding:
+		case EGASPMovementMode::Traversing:
+		{
+			// OnGround/Sliding/Traversing logic
+			const FVector Velocity = MoverComp->GetVelocity();
+			const float SpeedXY = Velocity.Size2D();
+
+			// TraceForwardDirection: velocity direction or target orientation
+			if (SpeedXY > 50.0f)
+			{
+				Result.TraceForwardDirection = Velocity.GetSafeNormal();
+			}
+			else
+			{
+				Result.TraceForwardDirection = MoverComp->GetTargetOrientation().Vector();
+			}
+
+			// TraceForwardDistance: MapRangeClamped(local velocity X, 0-375 → 75-300)
+			const FRotator ActorRotation = GetActorRotation();
+			const FVector LocalVelocity = ActorRotation.UnrotateVector(Velocity);
+			const float LocalVelocityX = LocalVelocity.X;
+			Result.TraceForwardDistance = FMath::GetMappedRangeValueClamped(
+				FVector2D(0.0f, 375.0f),
+				FVector2D(75.0f, 300.0f),
+				LocalVelocityX
+			);
+
+			Result.TraceRadius = 30.0f;
+			Result.TraceHalfHeight = 60.0f;
+			break;
+		}
+
+		case EGASPMovementMode::InAir:
+		{
+			// InAir logic - use move input
+			const FVector MoveInput = MoverDefaultInputs_PostSim.GetMoveInput();
+
+			if (!MoveInput.IsNearlyZero())
+			{
+				Result.TraceForwardDirection = MoveInput.GetSafeNormal();
+			}
+			else
+			{
+				Result.TraceForwardDirection = GetActorForwardVector();
+			}
+
+			Result.TraceForwardDistance = 75.0f;
+			Result.TraceEndOffset = FVector(0.0f, 0.0f, 50.0f);
+			Result.TraceRadius = 30.0f;
+			Result.TraceHalfHeight = 86.0f;
+			break;
+		}
+	}
+
+	return Result;
 }
 
 EGASPMovementMode ABaseCharacter_Mover::Get_CurrentMovementMode_Implementation() const
@@ -210,23 +280,92 @@ void ABaseCharacter_Mover::OnPreSimulateTick_Implementation(const FMoverTimeStep
 {
 }
 
-bool ABaseCharacter_Mover::Jump_Implementation() const
+bool ABaseCharacter_Mover::Jump_Implementation()
 {
-	return false;
+	// Check if not currently doing traversal action
+	if (!TraversalLogic || TraversalLogic->bDoingTraversalAction)
+	{
+		return false;
+	}
+
+	// Get traversal check inputs
+	FTraversalCheckInputs Inputs = GetTraversalCheckInputs();
+
+	// Try traversal action
+	bool TraversalCheckFailed = false;
+	bool MontageSelectionFailed = false;
+	TraversalLogic->TryTraversalAction(Inputs, EDrawDebugTrace::ForOneFrame, TraversalCheckFailed, MontageSelectionFailed);
+
+	// Return true if either check failed (jump failed)
+	return TraversalCheckFailed || MontageSelectionFailed;
 }
 
 FVector2D ABaseCharacter_Mover::Get_Move_Implementation() const
 {
+	// TODO: Implement move input retrieval logic
 	return FVector2D::ZeroVector;
 }
 
 FVector2D ABaseCharacter_Mover::Get_TwinStick_AimDirection_Implementation() const
 {
+	// TODO: Implement twin-stick aim direction retrieval logic
 	return FVector2D::ZeroVector;
 }
 
 void ABaseCharacter_Mover::OnRotationIdle_Implementation()
 {
+	// Early exit if auto idle is not enabled
+	if (!IdleSet.IsAutoIdle)
+	{
+		return;
+	}
+
+	// Only process OnGround movement mode
+	const EGASPMovementMode MovementMode = Get_CurrentMovementMode();
+	if (MovementMode != EGASPMovementMode::OnGround)
+	{
+		return;
+	}
+
+	// Get current game time
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+
+	// Check 1: If there is move input, update last move time and enable strafe
+	const FVector MoveInput = MoverDefaultInputs_PreSim.GetMoveInput();
+	if (!MoveInput.IsNearlyZero())
+	{
+		IdleSet.LastMoveTime = CurrentTime;
+		PlayerInputState.WantsToStrafe = true;
+		return;
+	}
+
+	// Check 2: If aiming, update last move time and enable strafe
+	if (PlayerInputState.WantsToAim)
+	{
+		IdleSet.LastMoveTime = CurrentTime;
+		PlayerInputState.WantsToStrafe = true;
+		return;
+	}
+
+	// Check 3: If idle for longer than InTime threshold, disable strafe
+	const float ElapsedTime = CurrentTime - IdleSet.LastMoveTime;
+	if (ElapsedTime > IdleSet.InTime)
+	{
+		PlayerInputState.WantsToStrafe = false;
+		return;
+	}
+
+	// Check 4: If rotation difference exceeds threshold (>10° yaw), enable strafe
+	const FRotator ActorRotation = GetActorRotation();
+	const FRotator AimingRotation = Get_AimingRotation();
+	const FRotator DeltaRotation = UKismetMathLibrary::NormalizedDeltaRotator(ActorRotation, AimingRotation);
+	const float YawDiff = FMath::Abs(DeltaRotation.Yaw);
+
+	if (YawDiff > 10.0f)
+	{
+		IdleSet.LastMoveTime = CurrentTime;
+		PlayerInputState.WantsToStrafe = true;
+	}
 }
 
 void ABaseCharacter_Mover::DebugDraws_Implementation()
@@ -291,7 +430,6 @@ void ABaseCharacter_Mover::JumpFailed_Implementation(bool IsFailed)
 			// Set jump pressed flag for one frame
 			bJump_JustPressed = true;
 			// Reset next frame via latent action
-			FTimerHandle TimerHandle;
 			GetWorldTimerManager().SetTimerForNextTick([this]()
 			{
 				bJump_JustPressed = false;
@@ -302,22 +440,23 @@ void ABaseCharacter_Mover::JumpFailed_Implementation(bool IsFailed)
 
 void ABaseCharacter_Mover::Crouch_Implementation()
 {
-	// Check if on ground or in air (not sliding or traversing)
+	// Get current movement mode
 	const EGASPMovementMode MovementMode = Get_CurrentMovementMode();
-	const bool bCanCrouch = (MovementMode == EGASPMovementMode::OnGround || MovementMode == EGASPMovementMode::InAir);
 
-	if (bCanCrouch)
+	// Check if OnGround OR InAir
+	if (MovementMode == EGASPMovementMode::OnGround || MovementMode == EGASPMovementMode::Sliding)
 	{
-		UCharacterMoverComponent* MoverComp = GetCharacterMover();
-		if (MoverComp)
+		// Use GetCharacterMover() to access the private CharacterMover member
+		if (UCharacterMoverComponent* MoverComp = GetCharacterMover())
 		{
-			// Toggle crouch state
 			if (MoverComp->IsCrouching())
 			{
+				// Already crouching -> stop crouching
 				PlayerInputState.WantsToCrouch = false;
 			}
 			else
 			{
+				// Not crouching -> start crouching
 				PlayerInputState.WantsToCrouch = true;
 			}
 		}

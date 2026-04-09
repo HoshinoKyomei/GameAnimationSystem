@@ -145,8 +145,8 @@ public:
 	// ============================================================
 
 	/** Handle jump input, returns true if jump was triggered */
-	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "Input")
-	bool Jump() const;
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Input")
+	bool Jump();
 
 	/** Get move input as 2D vector */
 	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "Input")
