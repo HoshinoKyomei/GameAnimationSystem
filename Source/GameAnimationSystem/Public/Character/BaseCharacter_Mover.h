@@ -31,6 +31,14 @@ class GAMEANIMATIONSYSTEM_API ABaseCharacter_Mover : public AMoverCharacter, pub
 public:
 	ABaseCharacter_Mover(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
+	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
+	virtual void PossessedBy(AController* NewController) override;
+
+	/** Client RPC called when possessed - runs on owning client only */
+	UFUNCTION(Client, Reliable)
+	void ClientPossessed();
+
 	/** IMoverInputProducerInterface implementation */
 	virtual void ProduceInput_Implementation(int32 SimTimeMs, FMoverInputCmdContext& InputCmdResult) override;
 
@@ -126,11 +134,11 @@ public:
 
 	/** Called when movement mode changed */
 	UFUNCTION(BlueprintNativeEvent, Category = "Mover")
-	void OnMovementModeChanged(FName PreviousMovementModeName, FName NewMovementModeName);
+	void OnMovementModeChanged(const FName& PreviousMovementModeName, const FName& NewMovementModeName);
 
 	/** Called before simulate tick */
 	UFUNCTION(BlueprintNativeEvent, Category = "Mover")
-	void OnPreSimulateTick(const FMoverTimeStep& TimeStep, FMoverInputCmdContext& InputCmd);
+	void OnPreSimulateTick(const FMoverTimeStep& TimeStep, const FMoverInputCmdContext& InputCmd);
 
 	// ============================================================
 	// Input Functions

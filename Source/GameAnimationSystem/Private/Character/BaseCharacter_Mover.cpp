@@ -4,6 +4,7 @@
 
 #include "Camera/CameraComponent.h"
 #include "Character/TraversalLogicComponent.h"
+#include "DefaultMovementSet/CharacterMoverComponent.h"
 #include "GameFramework/GameplayCameraComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 
@@ -31,6 +32,66 @@ ABaseCharacter_Mover::ABaseCharacter_Mover(const FObjectInitializer& ObjectIniti
 	Camera->SetupAttachment(SpringArm);
 }
 
+void ABaseCharacter_Mover::BeginPlay()
+{
+	Super::BeginPlay();
+
+	UCharacterMoverComponent* MoverComp = GetCharacterMover();
+	if (MoverComp)
+	{
+		// Bind OnMovementModeChanged (AssignDelegate = replace existing bindings)
+		MoverComp->OnMovementModeChanged.Clear();
+		MoverComp->OnMovementModeChanged.AddDynamic(this, &ABaseCharacter_Mover::OnMovementModeChanged);
+
+		// Add OnPreSimulationTick binding (AddDelegate = add to existing bindings)
+		MoverComp->OnPreSimulationTick.AddDynamic(this, &ABaseCharacter_Mover::OnPreSimulateTick);
+	}
+
+	// Set Tick prerequisite order: SkeletalMesh depends on CharacterMover
+	if (GetMesh() && MoverComp)
+	{
+		GetMesh()->AddTickPrerequisiteComponent(MoverComp);
+	}
+
+	// Set Tick prerequisite order: SkeletalMesh depends on this Actor
+	if (GetMesh())
+	{
+		GetMesh()->AddTickPrerequisiteActor(this);
+	}
+
+	// Initialize MoverDefaultInputs_PreSim.OrientationIntent to Actor forward vector
+	MoverDefaultInputs_PreSim.OrientationIntent = GetActorForwardVector();
+}
+
+void ABaseCharacter_Mover::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	// Call update functions in sequence (BlueprintNativeEvent pattern)
+	CacheInputsFromMover();
+	Update_FloorValues();
+	Update_ControlRotationRate();
+	Update_SlidingAudio();
+	Update_TargetedActor();
+	Update_TwinStickMode();
+	DebugDraws();
+}
+
+void ABaseCharacter_Mover::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	// Call client RPC to run setup on owning client
+	ClientPossessed();
+}
+
+void ABaseCharacter_Mover::ClientPossessed_Implementation()
+{
+	// Runs on owning client only - setup camera and input
+	SetupCamera();
+	SetupInput();
+}
+
 void ABaseCharacter_Mover::ProduceInput_Implementation(int32 SimTimeMs, FMoverInputCmdContext& InputCmdResult)
 {
 	// Default implementation - can be extended in Blueprint or subclass
@@ -38,7 +99,7 @@ void ABaseCharacter_Mover::ProduceInput_Implementation(int32 SimTimeMs, FMoverIn
 
 void ABaseCharacter_Mover::Set_CharacterInputState_Implementation(const FPlayerInputState& InInputState)
 {
-	// Default implementation - can be extended in Blueprint or subclass
+	PlayerInputState = InInputState;
 }
 
 FCharacterPropertiesForAnimation ABaseCharacter_Mover::Get_PropertiesForAnimation_Implementation() const
@@ -140,11 +201,11 @@ void ABaseCharacter_Mover::CacheInputsFromMover_Implementation()
 {
 }
 
-void ABaseCharacter_Mover::OnMovementModeChanged_Implementation(FName PreviousMovementModeName, FName NewMovementModeName)
+void ABaseCharacter_Mover::OnMovementModeChanged_Implementation(const FName& PreviousMovementModeName, const FName& NewMovementModeName)
 {
 }
 
-void ABaseCharacter_Mover::OnPreSimulateTick_Implementation(const FMoverTimeStep& TimeStep, FMoverInputCmdContext& InputCmd)
+void ABaseCharacter_Mover::OnPreSimulateTick_Implementation(const FMoverTimeStep& TimeStep, const FMoverInputCmdContext& InputCmd)
 {
 }
 
